@@ -1,0 +1,407 @@
+
+
+
+
+
+
+
+
+
+import streamlit as st
+
+import pandas as pd
+
+import sqlite3
+
+import os
+
+
+# 1. Page Configuration & Custom Theme Stylesheet Injection
+
+st.set_page_config(page_title="450 Canada - 5 Pin Hub", page_icon="🎳", layout="wide")
+
+
+st.markdown("""
+
+    <style>
+
+        .stApp { background-color: #11141a; color: #f1f3f5; }
+
+        [data-testid="stSidebar"] { background-color: #1a1e26; border-right: 2px solid #d4af37; }
+
+        h1, h2, strong { color: #e63946 !important; font-family: 'Arial Black', Gadget, sans-serif; }
+
+        h3, .stMarkdown p code, th { color: #d4af37 !important; }
+
+        div.stButton > button:first-child {
+
+            background-color: #e63946; color: white; border-radius: 8px; border: 2px solid #d4af37;
+
+            font-weight: bold; box-shadow: 0px 4px 10px rgba(230, 57, 70, 0.3);
+
+        }
+
+        div.stButton > button:first-child:hover { background-color: #d4af37; color: #11141a; border: 2px solid #e63946; }
+
+        div[data-testid="stDataFrame"] th { background-color: #1a1e26 !important; color: #d4af37 !important; }
+
+        .paywall-box { background-color: #261c1e; border: 2px dashed #e63946; padding: 20px; border-radius: 8px; text-align: center; }
+
+        .individual-paywall { background-color: #1c2326; border: 2px dashed #d4af37; padding: 20px; border-radius: 8px; text-align: center; }
+
+        .feed-container { background-color: #1a1e26; border-left: 4px solid #e63946; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+
+    </style>
+
+""", unsafe_allow_html=True)
+
+
+st.title("🎳 450 Canada")
+
+st.subheader("The National Hub for Canadian 5-Pin Averages, Rankings & Permanent Score Ledgers")
+
+
+# 2. Permanent SQLite Local Database Initialisation
+
+DB_FILE = "450canada.db"
+
+
+def get_db_connection():
+
+    conn = sqlite3.connect(DB_FILE)
+
+    conn.row_factory = sqlite3.Row
+
+    return conn
+
+
+def init_db():
+
+    conn = get_db_connection()
+
+    cursor = conn.cursor()
+
+    
+
+    # Create Users Matrix Table
+
+    cursor.execute("""
+
+        CREATE TABLE IF NOT EXISTS users (
+
+            email TEXT PRIMARY KEY,
+
+            password TEXT,
+
+            role TEXT,
+
+            name TEXT,
+
+            paid INTEGER
+
+        )
+
+    """)
+
+    
+
+    # Create Permanent Bowlers Database Matrix Table
+
+    cursor.execute("""
+
+        CREATE TABLE IF NOT EXISTS bowlers (
+
+            name TEXT PRIMARY KEY,
+
+            bowling_centre TEXT,
+
+            tour_region TEXT,
+
+            province TEXT,
+
+            zone TEXT,
+
+            division TEXT,
+
+            total_pins INTEGER,
+
+            games INTEGER,
+
+            high_single INTEGER,
+
+            high_triple INTEGER,
+
+            accolades TEXT
+
+        )
+
+    """)
+
+    
+
+    # Insert Core Structural Mock Seed Data if the database files are brand new
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+
+    if cursor.fetchone()[0] == 0:
+
+        cursor.executemany("INSERT INTO users VALUES (?, ?, ?, ?, ?)", [
+
+            ("admin@oshawalanes.ca", "password123", "Bowling Centre", "NEB's Fun World", 1),
+
+            ("secretary@adultleague.com", "password456", "League Host", "Durham Region Adult League", 0),
+
+            ("mitch@5pinbowler.ca", "mitch", "Individual Bowler", "Mitch Davies", 1),
+
+            ("emma@5pinbowler.ca", "emma", "Individual Bowler", "Emma Wong", 0)
+
+        ])
+
+        
+
+    cursor.execute("SELECT COUNT(*) FROM bowlers")
+
+    if cursor.fetchone()[0] == 0:
+
+        cursor.executemany("INSERT INTO bowlers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+
+            ("Mitch Davies", "Calgary Lanes (Calgary, AB)", "Western Canada Tour", "Alberta", "Zone 2 (Calgary)", "Master Bowlers (Tournament)", 7560, 30, 385, 910, "🥇 350+ Club, 🏆 900+ Series"),
+
+            ("Emma Wong", "NEB's Fun World (Oshawa, ON)", "Central Canada Tour", "Ontario", "Zone D (Niagara)", "Master Bowlers (Tournament)", 7740, 30, 415, 945, "🔥 400+ Elite, 🏆 900+ Series"),
+
+            ("Sarah Tremblay", "Laurentian Lanes (Montreal, QC)", "Central Canada Tour", "Quebec", "Zone 4 (Montreal)", "Adult Women's Open", 6120, 30, 310, 785, "🥈 300+ Club"),
+
+            ("Jean-Guy Roy", "Laurentian Lanes (Montreal, QC)", "Central Canada Tour", "Quebec", "Zone 4 (Montreal)", "Senior Men's (50+)", 6450, 30, 305, 765, "🥈 300+ Club, 👴 Veteran Legend")
+
+        ])
+
+    
+
+    conn.commit()
+
+    conn.close()
+
+
+# Start the DB Engines on launch
+
+init_db()
+
+
+# Cache Live update data in session state for UI performance logs only
+
+if "live_feed" not in st.session_state:
+
+    st.session_state.live_feed = [
+
+        {"Timestamp": "10 Mins Ago", "Source": "NEBs Fun World Sync Engine", "Message": "🔥 Permanent entry tracking successfully synced to SQLite server filesystem."},
+
+        {"Timestamp": "2 Hours Ago", "Source": "Calgary Lanes API Gateway", "Message": "🏆 Mitch Davies locked down an 845 Triple Series in the Master Bowlers Division."}
+
+    ]
+
+
+if "current_user" not in st.session_state:
+
+    st.session_state.current_user = None
+
+
+# Static structural option constraints lists
+
+OFFICIAL_DIVISIONS = [
+
+    "Adult Men's Open", "Adult Women's Open", 
+
+    "Senior Men's (50+)", "Senior Women's (50+)", 
+
+    "Master Bowlers (Tournament)", "Master Bowlers (Teaching)", "Master Bowlers (Seniors)",
+
+    "YBC Junior (Youth)", "YBC Senior (Youth)"
+
+]
+
+
+BOWLING_CENTRES_LIST = [
+
+    "NEB's Fun World (Oshawa, ON)",
+
+    "Calgary Lanes (Calgary, AB)",
+
+    "REVS Bowling & Entertainment (Burnaby, BC)",
+
+    "Sherwood Bowl (Sherwood Park, AB)",
+
+    "Echo Bowl (Brantford, ON)",
+
+    "Laurentian Lanes (Montreal, QC)",
+
+    "Fairview Lanes (St. Catharines, ON)"
+
+]
+
+
+TOUR_REGIONS = {
+
+    "All Regions": {"Provinces": ["All Provinces/Territories"], "Zones": ["All Zones"]},
+
+    "Western Canada Tour": {"Provinces": ["Alberta", "British Columbia", "Saskatchewan", "Manitoba"], "Zones": ["Zone 2 (Calgary)", "Zone 4 (Edmonton)", "Zone B (Fraser Valley)", "Zone 1 (Regina)"]},
+
+    "Central Canada Tour": {"Provinces": ["Ontario", "Quebec"], "Zones": ["Zone D (Niagara)", "Zone X (Metro Toronto)", "Zone 4 (Montreal)"]},
+
+    "Atlantic Tour": {"Provinces": ["Newfoundland & Labrador", "Nova Scotia", "New Brunswick", "Prince Edward Island"], "Zones": ["Avalon Hub", "Halifax Metro"]}
+
+}
+
+
+# 3. Sidebar Login System Backend Checks
+
+st.sidebar.header("🔐 User Authentication")
+
+
+conn = get_db_connection()
+
+if st.session_state.current_user is None:
+
+    st.sidebar.subheader("Sign-In Panel")
+
+    login_email = st.sidebar.text_input("Account Email Address:")
+
+    login_password = st.sidebar.text_input("Security Password:", type="password")
+
+    login_btn = st.sidebar.button("Authenticate Identity")
+
+    
+
+    if login_btn:
+
+        user_res = conn.execute("SELECT * FROM users WHERE email = ?", (login_email,)).fetchone()
+
+        if user_res and user_res["password"] == login_password:
+
+            st.session_state.current_user = login_email
+
+            st.sidebar.success(f"Logged in: {user_res['name']}")
+
+            st.rerun()
+
+        else:
+
+            st.sidebar.error("Invalid login credentials.")
+
+else:
+
+    u_res = conn.execute("SELECT * FROM users WHERE email = ?", (st.session_state.current_user,)).fetchone()
+
+    st.sidebar.markdown(f"**Logged in as:**\n👤 {u_res['name']}")
+
+    st.sidebar.caption(f"**Account Role:** {u_res['role']}")
+
+    st.sidebar.success("✨ License Active" if u_res["paid"] == 1 else "⚠️ License Unpaid")
+
+    
+
+    if st.sidebar.button("Disconnect Session"):
+
+        st.session_state.current_user = None
+
+        st.rerun()
+
+
+st.sidebar.markdown("---")
+
+st.sidebar.header("Main Navigation")
+
+app_mode = st.sidebar.radio("Go to Page:", ["🏆 Tour Leaderboards", "📡 Live 5-Pin Feeds", "🛠️ Management Portal"])
+
+
+# Banner Ad Section Placement
+
+st.sidebar.markdown("---")
+
+st.sidebar.caption("⚡ PREMIER SPONSOR")
+
+st.sidebar.image("https://placehold.co", use_container_width=True)
+
+
+
+# --- PAGE 1: PERMANENT TOUR LEADERBOARDS (READING FROM DIRECT SQL DATA) ---
+
+if app_mode == "🏆 Tour Leaderboards":
+
+    main_content, ad_sidebar = st.columns()
+
+    
+
+    with main_content:
+
+        st.header("🇨🇦 Official Canadian 5-Pin Tour Rankings")
+
+        
+
+        f1, f2, f3 = st.columns(3)
+
+        selected_div = f1.selectbox("Filter Division:", ["All Divisions"] + OFFICIAL_DIVISIONS)
+
+        selected_tour = f2.selectbox("Filter Tour Area:", list(TOUR_REGIONS.keys()))
+
+        search_alley = f3.text_input("🔍 Search Alley Location:", placeholder="e.g., NEB's")
+
+
+        # Extract data out from the SQL Local File
+
+        df_bowlers = pd.read_sql_query("SELECT * FROM bowlers", conn)
+
+        
+
+        # Calculate Averages Dynamically on live values
+
+        df_bowlers["Average"] = (df_bowlers["total_pins"] / df_bowlers["games"]).round(1)
+
+        
+
+        # Apply Filters safely onto DataFrame
+
+        if selected_div != "All Divisions":
+
+            df_bowlers = df_bowlers[df_bowlers["division"] == selected_div]
+
+        if selected_tour != "All Regions":
+
+            df_bowlers = df_bowlers[df_bowlers["tour_region"] == selected_tour]
+
+        if search_alley:
+
+            df_bowlers = df_bowlers[df_bowlers["bowling_centre"].str.contains(search_alley, case=False, na=False)]
+
+            
+
+        df_bowlers = df_bowlers.sort_values(by="Average", ascending=False).reset_index(drop=True)
+
+        df_bowlers.index += 1  
+
+        
+
+        if df_bowlers.empty:
+
+            st.warning("No data matrices found matching this criteria.")
+
+        else:
+
+            ui_df = df_bowlers.rename(columns={
+
+                "name": "Name", "bowling_centre": "Bowling Centre", "tour_region": "Tour Area",
+
+                "province": "Province", "zone": "Zone", "division": "Division",
+
+                "total_pins": "Total Pins", "games": "Games Played", "high_single": "High Single",
+
+                "high_triple": "High Triple", "accolades": "Accolades & Badges"
+
+            })
+
+            st.dataframe(ui_df[["Name", "Bowling Centre", "Tour Area", "Division", "Average", "Games Played", "High Single", "High Triple", "Accolades & Badges"]], use_container_width=True)
+
+
+    with ad_sidebar:
+
+        st.caption("🎳 LANE SPONSORS")
+
